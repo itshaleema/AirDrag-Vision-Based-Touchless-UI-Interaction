@@ -1,0 +1,75 @@
+import cv2
+import numpy as np
+from cvzone.HandTrackingModule import HandDetector
+
+# Configuration
+CAM_ID = 0
+FRAME_W, FRAME_H = 1280, 720
+BOX_COLOR = (255, 0, 255)
+ALPHA = 0.5
+PINCH_THRESHOLD = 30
+
+
+class DraggableBox:
+    def __init__(self, center, size=(200, 200)):
+        self.cx, self.cy = center
+        self.w, self.h = size
+
+    def update_if_inside(self, pt):
+        x, y = pt
+        if self.cx - self.w // 2 < x < self.cx + self.w // 2 and \
+           self.cy - self.h // 2 < y < self.cy + self.h // 2:
+            self.cx, self.cy = x, y
+
+    def draw(self, canvas):
+        tl = (self.cx - self.w // 2, self.cy - self.h // 2)
+        br = (self.cx + self.w // 2, self.cy + self.h // 2)
+        cv2.rectangle(canvas, tl, br, BOX_COLOR, cv2.FILLED)
+        cv2.rectangle(canvas, tl, br, (0, 255, 0), 2)
+
+
+def main():
+    cap = cv2.VideoCapture(CAM_ID)
+    cap.set(3, FRAME_W)
+    cap.set(4, FRAME_H)
+
+    detector = HandDetector(detectionCon=0.8, maxHands=1)
+
+    # Create draggable rectangles
+    boxes = [DraggableBox((150 + i * 250, 150)) for i in range(5)]
+
+    while True:
+        success, frame = cap.read()
+        if not success:
+            continue
+        frame = cv2.flip(frame, 1)
+
+        hands, frame = detector.findHands(frame, flipType=False)
+
+        if hands:
+            lm = hands[0]["lmList"]
+            dist, _, _ = detector.findDistance(lm[8][:2], lm[12][:2])
+            if dist < PINCH_THRESHOLD:
+                cursor = tuple(lm[8][:2])
+                for box in boxes:
+                    box.update_if_inside(cursor)
+
+        # Transparent overlay
+        overlay = np.zeros_like(frame, np.uint8)
+        for box in boxes:
+            box.draw(overlay)
+
+        out = frame.copy()
+        mask = overlay.astype(bool)
+        out[mask] = cv2.addWeighted(frame, ALPHA, overlay, 1 - ALPHA, 0)[mask]
+
+        cv2.imshow("Hand Drag Boxes", out)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
